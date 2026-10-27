@@ -1,0 +1,16 @@
+// Local iteration layout. Build first, then launch from the repo root:
+//   nix develop -c cargo build --release --target wasm32-wasip1
+//   zellij --layout layouts/local.kdl
+// Zellij resolves the relative file: path against the current working directory.
+// `demo_current` is preview-only: it forces one workspace to render as the
+// current session so the highlight is visible outside a real dev session.
+layout {
+    pane split_direction="vertical" {
+        pane size=32 borderless=true {
+            plugin location="file:target/wasm32-wasip1/release/zj-redback-dev-status.wasm" {
+                demo_current "fabric/publish-ui"
+            }
+        }
+        pane
+    }
+}
