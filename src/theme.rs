@@ -44,6 +44,7 @@ pub struct Theme {
     pub running: Col,
     pub error: Col,
     pub hl_bg: Col,
+    pub title: Col,
 }
 
 impl Theme {
@@ -58,6 +59,7 @@ impl Theme {
             running: Col::Bit(2),
             error: Col::Bit(1),
             hl_bg: Col::Bit(236),
+            title: Col::Bit(208),
         }
     }
 
@@ -77,12 +79,15 @@ impl Theme {
             running: s.exit_code_success.base.into(),
             error: s.exit_code_error.base.into(),
             hl_bg: blend(bg, base, 0.14),
+            // Zellij's theme exposes no orange role; a fixed peach, overridable
+            // via color_title.
+            title: Col::Rgb(239, 159, 118),
         }
     }
 
     /// Override roles from the plugin's KDL config without recompiling. Keys:
     /// color_text, color_muted, color_dim, color_accent, color_running,
-    /// color_error, color_hl_bg.
+    /// color_error, color_hl_bg, color_title.
     pub fn apply_overrides(&mut self, cfg: &BTreeMap<String, String>) {
         let set = |key: &str, slot: &mut Col| {
             if let Some(c) = cfg.get(key).and_then(|v| parse_color(v)) {
@@ -96,6 +101,7 @@ impl Theme {
         set("color_running", &mut self.running);
         set("color_error", &mut self.error);
         set("color_hl_bg", &mut self.hl_bg);
+        set("color_title", &mut self.title);
     }
 }
 

@@ -364,7 +364,7 @@ impl State {
         let label = " DEV SESSIONS";
         let btn_start = cols.saturating_sub(btn.len());
         let shown = trunc(label, btn_start.saturating_sub(1));
-        let mut title = styled(th.dim, false, &shown);
+        let mut title = styled(th.title, false, &shown);
         for _ in shown.chars().count()..btn_start {
             title.push(' ');
         }
