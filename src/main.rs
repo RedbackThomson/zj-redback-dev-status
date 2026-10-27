@@ -42,6 +42,10 @@ struct State {
     view: View,
     line_targets: Vec<Target>,
     new_btn: Option<(usize, usize)>,
+    plugin_id: Option<u32>,
+    permission_pending: bool,
+    saw_terminal: bool,
+    selectable_sent: Option<bool>,
 }
 
 impl Default for State {
@@ -59,6 +63,10 @@ impl Default for State {
             view: View::Tree,
             line_targets: Vec::new(),
             new_btn: None,
+            plugin_id: None,
+            permission_pending: true,
+            saw_terminal: false,
+            selectable_sent: None,
         }
     }
 }
@@ -72,6 +80,7 @@ impl ZellijPlugin for State {
         t.apply_overrides(&self.cfg);
         self.theme = t;
 
+        self.plugin_id = Some(get_plugin_ids().plugin_id);
         request_permission(&[
             PermissionType::ReadApplicationState,
             PermissionType::ChangeApplicationState,
@@ -82,14 +91,12 @@ impl ZellijPlugin for State {
             EventType::ModeUpdate,
             EventType::PermissionRequestResult,
             EventType::SessionUpdate,
+            EventType::PaneUpdate,
             EventType::Mouse,
             EventType::Timer,
             EventType::RunCommandResult,
         ]);
-        // Non-selectable: receives mouse clicks like a status bar, but does not
-        // count as a content pane, so it never keeps a session alive once the
-        // terminal panes are gone (and never captures keystrokes).
-        set_selectable(false);
+        self.sync_selectable();
         set_timeout(1.0);
     }
 
@@ -103,10 +110,17 @@ impl ZellijPlugin for State {
             }
             Event::PermissionRequestResult(status) => {
                 self.granted = matches!(status, PermissionStatus::Granted);
+                self.permission_pending = false;
+                self.sync_selectable();
                 if self.granted {
                     self.refresh();
                 }
                 true
+            }
+            Event::PaneUpdate(manifest) => {
+                self.note_panes(&manifest);
+                self.sync_selectable();
+                false
             }
             Event::Timer(_) => {
                 if self.granted {
@@ -167,6 +181,45 @@ impl State {
         let mut ctx = BTreeMap::new();
         ctx.insert("cmd".to_string(), "list".to_string());
         run_command(&["dev", "list", "--json"], ctx);
+    }
+
+    /// Latch once a manifest shows a terminal (non-plugin) pane sharing this
+    /// plugin's tab. See `sync_selectable` for why this gates passivity.
+    fn note_panes(&mut self, manifest: &PaneManifest) {
+        let Some(pid) = self.plugin_id else { return };
+        let my_tab = manifest
+            .panes
+            .iter()
+            .find_map(|(tab, panes)| {
+                panes.iter().any(|p| p.is_plugin && p.id == pid).then_some(*tab)
+            });
+        if let Some(tab) = my_tab {
+            let has_terminal = manifest
+                .panes
+                .get(&tab)
+                .is_some_and(|panes| panes.iter().any(|p| !p.is_plugin));
+            self.saw_terminal |= has_terminal;
+        }
+    }
+
+    /// Selectable while the permission prompt is in flight (Zellij ties the y/n
+    /// prompt to the requesting pane, and a non-selectable pane can't be
+    /// focused to answer it) and until a terminal is known to share the tab.
+    /// Then it latches passive: Zellij closes any tab whose only panes are
+    /// non-selectable, so going passive before a terminal exists would orphan
+    /// the tab — and, if it is the last tab, end the session. Once a terminal
+    /// has shared the tab, staying passive lets closing that terminal tear the
+    /// tab (and session) down normally instead of the plugin keeping it alive.
+    fn desired_selectable(&self) -> bool {
+        self.permission_pending || !self.saw_terminal
+    }
+
+    fn sync_selectable(&mut self) {
+        let want = self.desired_selectable();
+        if self.selectable_sent != Some(want) {
+            self.selectable_sent = Some(want);
+            set_selectable(want);
+        }
     }
 
     /// Display order: workspaces youngest-first, grouped by repo; a repo appears
